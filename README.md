@@ -1,3 +1,1 @@
-# Databricks Terraform provider sample for AWS
-# Databricks Terraform provider sample for AWS
-my second commit
+Databrick workspace set-up on AWS cloud using terraform
