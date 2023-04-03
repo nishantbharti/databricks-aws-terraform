@@ -1,0 +1,466 @@
+Tutorial: Create a workspace with Terraform
+March 28, 2023
+
+Creating a Databricks workspace requires many steps, especially when you use the Databricks and AWS account consoles. In this tutorial, you will use the Databricks Terraform provider and the AWS provider to programmatically create a Databricks workspace along with the required AWS resources. These providers are based on HashiCorp Terraform, a popular open source infrastructure as code (IaC) tool for managing the operational lifecycle of cloud resources.
+
+Requirements
+An existing or new Databricks on AWS account. To create a new Databricks Platform Free Trial account, follow the instructions in Get started: Free trial & setup.
+
+Note
+
+For a new Databricks account, you must set up an initial workspace, which the preceding instructions guide you through. This tutorial enables you to use the Databricks Terraform provider to create an additional workspace beyond the initial one.
+
+Your Databricks account username and password.
+
+Your Databricks account ID. To get this value, follow Locate your account ID.
+
+For the AWS account associated with your Databricks account, permissions for your AWS Identity and Access Management (IAM) user in the AWS account to create:
+
+An IAM cross-account policy and role.
+
+A virtual private cloud (VPC) and associated resources in Amazon VPC.
+
+An Amazon S3 bucket.
+
+See Changing permissions for an IAM user on the AWS website.
+
+For your IAM user in the AWS account, an AWS access key, which consists of an AWS secret key and an AWS secret access key. See Managing access keys (console) on the AWS website.
+
+A development machine with the Terraform CLI and Git installed. See Download Terraform on the Terraform website and Install Git on the GitHub website.
+
+An existing or new GitHub account. To create one, see Signing up for a new GitHub account on the GitHub website.
+
+Step 1: Create a GitHub repository
+In this step, you create a new repository in GitHub to store your Terraform files. It is a best practice to store, track, and control changes to IaC files in a system such as GitHub.
+
+Sign in to your GitHub account.
+
+Create a new repository in your GitHub account. Name the repository databricks-aws-terraform.
+
+Run the following commands, one command at a time, from your development machine’s terminal. In the git remote command, replace <your-GitHub-username> with your GitHub username. These commands create an empty directory, fill it with starter content, transform it into a local repository, and then upload this local repository into the new repository in your GitHub account.
+
+Bash
+Copy to clipboardCopy
+mkdir databricks-aws-terraform
+cd databricks-aws-terraform
+echo "# Databricks Terraform provider sample for AWS" >> README.md
+git init
+git add README.md
+git commit -m "First commit"
+git branch -M main
+git remote add origin git@github.com:<your-GitHub-username>/databricks-aws-terraform.git
+git push -u origin main
+Tip
+
+If you get a “permission denied” error after you run the git push command, see Connecting to GitHub with SSH on the GitHub website.
+
+In the root of your databricks-aws-terraform directory, use your favorite code editor to create a file named .gitignore with the following content. This file instructs GitHub to exclude the specified files in your repository. This is because you will download these files later in this tutorial.
+
+Copy to clipboardCopy
+*.terraform
+*.tfvars
+Step 2: Declare and initialize Terraform variables
+In this step, you produce all of the code that Terraform needs to create the required Databricks and AWS resources.
+
+Create the following seven files in the root of your databricks-aws-terraform directory. These files define your Databricks workspace and its dependent resources in your AWS account, in code. Links to related Databricks and AWS documentation on the Terraform website are included as comments within the code for future reference, and also in the accompanying text.
+
+Important
+
+You must provide Terraform with your AWS account credentials. These can be specified through sources such as environment variables or shared configuration and credentials files. See Authentication and Configuration on the Terraform website.
+
+Warning
+
+While Terraform supports hard-coding your AWS account credentials in Terraform files, this approach is not recommended, as it risks secret leakage should such files ever be committed to a public version control system.
+
+vars.tf: This file defines Terraform input variables that are used in later files for:
+
+Your Databricks account username, password, and account ID.
+
+The Classless Inter-Domain Routing (CIDR) block for the dependent virtual private cloud (VPC) in Amazon Virtual Public Cloud (Amazon VPC). See VPC basics on the AWS website.
+
+The AWS Region where the dependent AWS resources are created. Change this Region as needed. See Regions and Availability Zones and AWS Regional Services on the AWS website.
+
+This file also includes a Terraform local value and related logic for assigning randomly-generated identifiers to the resources that Terraform creates throughout these files.
+
+For related Terraform documentation, see random_string (Resource) on the Terraform website.
+
+Copy to clipboardCopy
+variable "databricks_account_username" {}
+variable "databricks_account_password" {}
+variable "databricks_account_id" {}
+
+variable "tags" {
+  default = {}
+}
+
+variable "cidr_block" {
+  default = "10.4.0.0/16"
+}
+
+variable "region" {
+  default = "eu-west-1"
+}
+
+// See https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/string
+resource "random_string" "naming" {
+  special = false
+  upper   = false
+  length  = 6
+}
+
+locals {
+  prefix = "demo-${random_string.naming.result}"
+}
+init.tf: This file initializes Terraform with the required Databricks Provider and the AWS Provider. This file also establishes your Databricks account credentials and instructs Terraform to use the E2 version of the Databricks on AWS platform.
+
+For related Terraform documentation, see Authentication on the Terraform website.
+
+Copy to clipboardCopy
+terraform {
+  required_providers {
+    databricks = {
+      source  = "databricks/databricks"
+    }
+    aws = {
+      source = "hashicorp/aws"
+      version = "3.49.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = var.region
+}
+
+// Initialize provider in "MWS" mode to provision the new workspace.
+// alias = "mws" instructs Databricks to connect to https://accounts.cloud.databricks.com, to create
+// a Databricks workspace that uses the E2 version of the Databricks on AWS platform.
+// See https://registry.terraform.io/providers/databricks/databricks/latest/docs#authentication
+provider "databricks" {
+  alias    = "mws"
+  host     = "https://accounts.cloud.databricks.com"
+  username = var.databricks_account_username
+  password = var.databricks_account_password
+}
+cross-account-role.tf: This file instructs Terraform to create the required IAM cross-account role and related policies within your AWS account. This role enables Databricks to take the necessary actions within your AWS account. See Create a cross-account IAM role.
+
+For related Terraform documentation, see the following on the Terraform website:
+
+databricks_aws_assume_role_policy Data Source
+
+Resource: aws_iam_role
+
+databricks_aws_crossaccount_policy Data Source
+
+Resource: aws_iam_role_policy
+
+databricks_mws_credentials Resource
+
+Copy to clipboardCopy
+// Create the required AWS STS assume role policy in your AWS account.
+// See https://registry.terraform.io/providers/databricks/databricks/latest/docs/data-sources/aws_assume_role_policy
+data "databricks_aws_assume_role_policy" "this" {
+  external_id = var.databricks_account_id
+}
+
+// Create the required IAM role in your AWS account.
+// See https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role
+resource "aws_iam_role" "cross_account_role" {
+  name               = "${local.prefix}-crossaccount"
+  assume_role_policy = data.databricks_aws_assume_role_policy.this.json
+  tags               = var.tags
+}
+
+// Create the required AWS cross-account policy in your AWS account.
+// See https://registry.terraform.io/providers/databricks/databricks/latest/docs/data-sources/aws_crossaccount_policy
+data "databricks_aws_crossaccount_policy" "this" {}
+
+// Create the required IAM role inline policy in your AWS account.
+// See https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy
+resource "aws_iam_role_policy" "this" {
+  name   = "${local.prefix}-policy"
+  role   = aws_iam_role.cross_account_role.id
+  policy = data.databricks_aws_crossaccount_policy.this.json
+}
+
+// Properly configure the cross-account role for the creation of new workspaces within your AWS account.
+// See https://registry.terraform.io/providers/databricks/databricks/latest/docs/resources/mws_credentials
+resource "databricks_mws_credentials" "this" {
+  provider         = databricks.mws
+  account_id       = var.databricks_account_id
+  role_arn         = aws_iam_role.cross_account_role.arn
+  credentials_name = "${local.prefix}-creds"
+  depends_on       = [aws_iam_role_policy.this]
+}
+vpc.tf: This file instructs Terraform to create the required VPC in your AWS account. See Customer-managed VPC.
+
+For related Terraform documentation, see the following on the Terraform website:
+
+Data Source: aws_availability_zones
+
+AWS VPC Terraform module
+
+AWS VPC Endpoints Terraform sub-module
+
+databricks_mws_networks Resource
+
+Copy to clipboardCopy
+// Allow access to the list of AWS Availability Zones within the AWS Region that is configured in vars.tf and init.tf.
+// See https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/availability_zones
+data "aws_availability_zones" "available" {}
+
+// Create the required VPC resources in your AWS account.
+// See https://registry.terraform.io/modules/terraform-aws-modules/vpc/aws/latest
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "3.2.0"
+
+  name = local.prefix
+  cidr = var.cidr_block
+  azs  = data.aws_availability_zones.available.names
+  tags = var.tags
+
+  enable_dns_hostnames = true
+  enable_nat_gateway   = true
+  single_nat_gateway   = true
+  create_igw           = true
+
+  public_subnets  = [cidrsubnet(var.cidr_block, 3, 0)]
+  private_subnets = [cidrsubnet(var.cidr_block, 3, 1),
+                     cidrsubnet(var.cidr_block, 3, 2)]
+
+  manage_default_security_group = true
+  default_security_group_name = "${local.prefix}-sg"
+
+  default_security_group_egress = [{
+    cidr_blocks = "0.0.0.0/0"
+  }]
+
+  default_security_group_ingress = [{
+    description = "Allow all internal TCP and UDP"
+    self        = true
+  }]
+}
+
+// Create the required VPC endpoints within your AWS account.
+// See https://registry.terraform.io/modules/terraform-aws-modules/vpc/aws/latest/submodules/vpc-endpoints
+module "vpc_endpoints" {
+  source = "terraform-aws-modules/vpc/aws//modules/vpc-endpoints"
+  version = "3.2.0"
+
+  vpc_id             = module.vpc.vpc_id
+  security_group_ids = [module.vpc.default_security_group_id]
+
+  endpoints = {
+    s3 = {
+      service         = "s3"
+      service_type    = "Gateway"
+      route_table_ids = flatten([
+        module.vpc.private_route_table_ids,
+        module.vpc.public_route_table_ids])
+      tags            = {
+        Name = "${local.prefix}-s3-vpc-endpoint"
+      }
+    },
+    sts = {
+      service             = "sts"
+      private_dns_enabled = true
+      subnet_ids          = module.vpc.private_subnets
+      tags                = {
+        Name = "${local.prefix}-sts-vpc-endpoint"
+      }
+    },
+    kinesis-streams = {
+      service             = "kinesis-streams"
+      private_dns_enabled = true
+      subnet_ids          = module.vpc.private_subnets
+      tags                = {
+        Name = "${local.prefix}-kinesis-vpc-endpoint"
+      }
+    }
+  }
+
+  tags = var.tags
+}
+
+// Properly configure the VPC and subnets for Databricks within your AWS account.
+// See https://registry.terraform.io/providers/databricks/databricks/latest/docs/resources/mws_networks
+resource "databricks_mws_networks" "this" {
+  provider           = databricks.mws
+  account_id         = var.databricks_account_id
+  network_name       = "${local.prefix}-network"
+  security_group_ids = [module.vpc.default_security_group_id]
+  subnet_ids         = module.vpc.private_subnets
+  vpc_id             = module.vpc.vpc_id
+}
+root-bucket.tf: This file instructs Terraform to create the required Amazon S3 root bucket within your AWS account. Databricks stores artifacts such as cluster logs, notebook revisions, and job results to an S3 bucket, which is commonly referred to as the root bucket.
+
+For related Terraform documentation, see the following on the Terraform website:
+
+AWS S3 bucket Terraform module
+
+Resource: aws_s3_bucket_public_access_block
+
+databricks_aws_bucket_policy Data Source
+
+Resource: aws_s3_bucket_policy
+
+databricks_mws_storage_configurations Resource
+
+Copy to clipboardCopy
+// Create the S3 root bucket.
+// See https://registry.terraform.io/modules/terraform-aws-modules/s3-bucket/aws/latest
+resource "aws_s3_bucket" "root_storage_bucket" {
+  bucket = "${local.prefix}-rootbucket"
+  acl    = "private"
+  versioning {
+    enabled = false
+  }
+  force_destroy = true
+  tags = merge(var.tags, {
+    Name = "${local.prefix}-rootbucket"
+  })
+}
+
+// Ignore public access control lists (ACLs) on the S3 root bucket and on any objects that this bucket contains.
+// See https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_public_access_block
+resource "aws_s3_bucket_public_access_block" "root_storage_bucket" {
+  bucket             = aws_s3_bucket.root_storage_bucket.id
+  ignore_public_acls = true
+  depends_on         = [aws_s3_bucket.root_storage_bucket]
+}
+
+// Configure a simple access policy for the S3 root bucket within your AWS account, so that Databricks can access data in it.
+// See https://registry.terraform.io/providers/databricks/databricks/latest/docs/data-sources/aws_bucket_policy
+data "databricks_aws_bucket_policy" "this" {
+  bucket = aws_s3_bucket.root_storage_bucket.bucket
+}
+
+// Attach the access policy to the S3 root bucket within your AWS account.
+// See https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_policy
+resource "aws_s3_bucket_policy" "root_bucket_policy" {
+  bucket     = aws_s3_bucket.root_storage_bucket.id
+  policy     = data.databricks_aws_bucket_policy.this.json
+  depends_on = [aws_s3_bucket_public_access_block.root_storage_bucket]
+}
+
+// Configure the S3 root bucket within your AWS account for new Databricks workspaces.
+// See https://registry.terraform.io/providers/databricks/databricks/latest/docs/resources/mws_storage_configurations
+resource "databricks_mws_storage_configurations" "this" {
+  provider                   = databricks.mws
+  account_id                 = var.databricks_account_id
+  bucket_name                = aws_s3_bucket.root_storage_bucket.bucket
+  storage_configuration_name = "${local.prefix}-storage"
+}
+workspace.tf: This file instructs Terraform to create the workspace within your Databricks account. This file also includes Terraform output values that represent the workspace’s URL and the Databricks personal access token for your Databricks user within your new workspace.
+
+For related Terraform documentation, see the following on the Terraform website:
+
+databricks_mws_workspaces resource
+
+Authentication
+
+databricks_token Resource
+
+Copy to clipboardCopy
+// Set up the Databricks workspace to use the E2 version of the Databricks on AWS platform.
+// See https://registry.terraform.io/providers/databricks/databricks/latest/docs/resources/mws_workspaces
+resource "databricks_mws_workspaces" "this" {
+  provider        = databricks.mws
+  account_id      = var.databricks_account_id
+  aws_region      = var.region
+  workspace_name  = local.prefix
+  deployment_name = local.prefix
+
+  credentials_id           = databricks_mws_credentials.this.credentials_id
+  storage_configuration_id = databricks_mws_storage_configurations.this.storage_configuration_id
+  network_id               = databricks_mws_networks.this.network_id
+}
+
+// Capture the Databricks workspace's URL.
+output "databricks_host" {
+  value = databricks_mws_workspaces.this.workspace_url
+}
+
+// Initialize the Databricks provider in "normal" (workspace) mode.
+// See https://registry.terraform.io/providers/databricks/databricks/latest/docs#authentication
+provider "databricks" {
+  // In workspace mode, you don't have to give providers aliases. Doing it here, however,
+  // makes it easier to reference, for example when creating a Databricks personal access token
+  // later in this file.
+  alias = "created_workspace"
+  host = databricks_mws_workspaces.this.workspace_url
+}
+
+// Create a Databricks personal access token, to provision entities within the workspace.
+resource "databricks_token" "pat" {
+  provider = databricks.created_workspace
+  comment  = "Terraform Provisioning"
+  lifetime_seconds = 86400
+}
+
+// Export the Databricks personal access token's value, for integration tests to run on.
+output "databricks_token" {
+  value     = databricks_token.pat.token_value
+  sensitive = true
+}
+tutorial.tfvars: This file contains your Databricks account ID, username, and password. Because you included the directive *.tfvars in the .gitignore file, it helps avoid accidentally checking these sensitive values into your remote GitHub repository. In this file, replace the following values:
+
+<your-Databricks-account-username> with your Databricks account username.
+
+<your-Databricks-account-password> with your Databricks account password.
+
+<your-Databricks-account-ID> with your Databricks account ID.
+
+Copy to clipboardCopy
+databricks_account_username = "<your-Databricks-account-username>"
+databricks_account_password = "<your-Databricks-account-password>"
+databricks_account_id = "<your-Databricks-account-ID>"
+Step 3: Create the required Databricks and AWS resources
+In this step, you instruct Terraform to create all of the required Databricks and AWS resources that are needed for your new workspace.
+
+Run the following commands, one command at a time, from the preceding directory. These commands instruct Terraform to download all of the required dependencies to your development machine, inspect the instructions in your Terraform files, determine what resources need to be added or deleted, and finally, create all of the specified resources.
+
+Bash
+Copy to clipboardCopy
+terraform init
+terraform apply -var-file="tutorial.tfvars"
+Within a few minutes, your Databricks workspace is ready. Use the workspace’s URL, displayed in the commands’ output, to sign in to your workspace. Be sure to sign in with your Databricks workspace administrator credentials.
+
+Step 4: Commit your changes to your GitHub repository
+In this step, you add your IaC source to your repository in GitHub.
+
+Run the following commands, one command at a time, from the preceding directory. These commands create a new branch in your repository, add your IaC source files to that branch, and then push that local branch to your remote repository.
+
+Bash
+Copy to clipboardCopy
+git checkout -b databricks_workspace
+git add .gitignore
+git add cross-account-role.tf
+git add init.tf
+git add root-bucket.tf
+git add vars.tf
+git add vpc.tf
+git add workspace.tf
+git commit -m "Create Databricks E2 workspace"
+git push origin HEAD
+Note that this tutorial uses local state. This is fine if you are the sole developer, but if you collaborate in a team, Databricks strongly recommends that you use Terraform remote state instead, which can then be shared between all members of a team. Terraform supports storing state in Terraform Cloud, HashiCorp Consul, Amazon S3, Azure Blob Storage, Google Cloud Storage and other options. Pushing local state to GitHub for example could unexpectedly expose sensitive data such as Databricks account username, password, or personal access token, which could also trigger GitGuardian warnings.
+
+Step 5: Clean up
+In this step, you can clean up the resources that you used in this tutorial, if you no longer want them in your Databricks or AWS accounts.
+
+To clean up, run the following command from the preceding directory, which deletes the workspace as well as the other related resources that were previously created.
+
+Bash
+Copy to clipboardCopy
+terraform destroy
+Additional resources
+Databricks Terraform provider
+
+Databricks Provider on the Terraform website
+
+AWS Provider on the Terraform website
+
+Databricks Provider Project Support on the Terraform website
+
+Terraform documentation on the Terraform website
