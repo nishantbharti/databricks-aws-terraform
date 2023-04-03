@@ -1,6 +1,6 @@
-variable "nishant.bharti01@gmail.com" {}
-variable "N@nishant18" {}
-variable "4e399bef-a480-43e9-b1aa-e407d5443409" {}
+variable "databricks_account_username" {}
+variable "databricks_account_password" {}
+variable "databricks_account_id" {}
 
 variable "tags" {
   default = {}
