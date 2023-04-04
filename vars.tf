@@ -14,7 +14,6 @@ variable "region" {
   default = "eu-west-1"
 }
 
-// See https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/string
 resource "random_string" "naming" {
   special = false
   upper   = false

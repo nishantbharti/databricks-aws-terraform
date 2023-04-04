@@ -1,9 +1,5 @@
-// Allow access to the list of AWS Availability Zones within the AWS Region that is configured in vars.tf and init.tf.
-// See https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/availability_zones
 data "aws_availability_zones" "available" {}
 
-// Create the required VPC resources in your AWS account.
-// See https://registry.terraform.io/modules/terraform-aws-modules/vpc/aws/latest
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
   version = "3.2.0"
@@ -35,8 +31,6 @@ module "vpc" {
   }]
 }
 
-// Create the required VPC endpoints within your AWS account.
-// See https://registry.terraform.io/modules/terraform-aws-modules/vpc/aws/latest/submodules/vpc-endpoints
 module "vpc_endpoints" {
   source = "terraform-aws-modules/vpc/aws//modules/vpc-endpoints"
   version = "3.2.0"
@@ -76,8 +70,6 @@ module "vpc_endpoints" {
   tags = var.tags
 }
 
-// Properly configure the VPC and subnets for Databricks within your AWS account.
-// See https://registry.terraform.io/providers/databricks/databricks/latest/docs/resources/mws_networks
 resource "databricks_mws_networks" "this" {
   provider           = databricks.mws
   account_id         = var.databricks_account_id
