@@ -15,9 +15,6 @@ output "databricks_host" {
 }
 
 provider "databricks" {
-  // In workspace mode, you don't have to give providers aliases. Doing it here, however,
-  // makes it easier to reference, for example when creating a Databricks personal access token
-  // later in this file.
   alias = "created_workspace"
   host = databricks_mws_workspaces.this.workspace_url
 }
