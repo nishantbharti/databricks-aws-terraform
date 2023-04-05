@@ -23,5 +23,5 @@ resource "random_string" "naming" {
 }
 
 locals {
-  prefix = "demo-${random_string.naming.result}"
+  prefix = "dlfasset-${random_string.naming.result}"
 }
